@@ -131,9 +131,14 @@ jobs:
           GPG_PRIV: ${{ secrets.GPG_PRIVATE_KEY }}
         run: |
           if [ -n "${GPG_KEY_ID}" ] && [ -n "${GPG_PRIV}" ]; then
+            # 同时为 runner 用户和 root 导入（后续 sudo 需要）
             echo "${GPG_PRIV}" | gpg --import --batch
+            sudo mkdir -p /root/.gnupg
+            sudo chmod 700 /root/.gnupg
+            echo "${GPG_PRIV}" | sudo gpg --homedir /root/.gnupg --import --batch
             echo "GPG 密钥导入完成"
             gpg --list-keys "${GPG_KEY_ID}"
+            sudo gpg --homedir /root/.gnupg --list-keys "${GPG_KEY_ID}"
             echo "gpg_key_id=${GPG_KEY_ID}" >> $GITHUB_OUTPUT
           else
             echo "GPG 密钥未配置，跳过签名"
