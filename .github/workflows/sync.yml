@@ -36,9 +36,9 @@ on:
 env:
   # 部署路径
   DEPLOY_DIR: /opt/lingmo-repo-sync
-  CACHE_DIR: /tmp/lingmo-cache
-  PUBLISH_ROOT: /tmp/lingmo-publish
-  LOG_DIR: /tmp/lingmo-logs
+  CACHE_DIR: /var/cache/lingmo-repo-sync
+  PUBLISH_ROOT: /var/www/aptly
+  LOG_DIR: /opt/lingmo-repo-sync/logs
 
 jobs:
   sync:
@@ -149,7 +149,7 @@ jobs:
         run: |
           cd repo-sync
           echo "::group::OBS lftp mirror"
-          bash download.sh
+          sudo bash download.sh
           echo "::endgroup::"
 
       - name: 检查 lftp 下载结果
@@ -206,7 +206,7 @@ jobs:
         run: |
           cd repo-sync
           echo "::group::aptly 导入与快照"
-          bash import.sh
+          sudo bash import.sh
           echo "::endgroup::"
 
       # ======================================================
@@ -220,7 +220,7 @@ jobs:
         run: |
           cd repo-sync
           echo "::group::aptly 发布"
-          bash publish.sh
+          sudo bash publish.sh
           echo "::endgroup::"
 
       # ======================================================
