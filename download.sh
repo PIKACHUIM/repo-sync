@@ -22,12 +22,9 @@ trap 'handle_error $LINENO "$BASH_COMMAND"' ERR
 # 返回: 0 成功，非 0 失败
 # ============================================================
 lftp_mirror() {
-    # 从 OBS_URL 拆解协议 + 主机 + 路径
     local host remote_path
     host=$(echo "${OBS_URL}" | sed -n 's|^https\?://\([^/]*\).*|\1|p')
     remote_path=$(echo "${OBS_URL}" | sed -n 's|^https\?://[^/]*\(/.*\)|\1|p')
-
-    # 去掉末尾 /
     remote_path="${remote_path%/}"
 
     log_info "开始 lftp mirror 同步..."
@@ -35,31 +32,29 @@ lftp_mirror() {
     log_info "远程路径: ${remote_path}"
     log_info "本地缓存: ${CACHE_DIR}"
 
-    # 构建 lftp 排除列表
-    # 只下载 Debian 仓库相关文件，排除无用文件
-    local exclude_args=()
-    exclude_args+=(--exclude-glob="*.iso")
-    exclude_args+=(--exclude-glob="*.img")
-    exclude_args+=(--exclude-glob="*.raw")
-    exclude_args+=(--exclude-glob="*. torrent")
-    exclude_args+=(--exclude-glob="index.html*")
+    # 构建 lftp 脚本
+    # 使用 heredoc 避免复杂的引号转义
+    lftp << EOF
+open https://${host}
+mirror \
+    --continue \
+    --parallel=8 \
+    --verbose \
+    --exclude-glob=*.iso \
+    --exclude-glob=*.img \
+    --exclude-glob=*.raw \
+    --exclude-glob=index.html* \
+    "${remote_path}" \
+    "${CACHE_DIR}"
+quit
+EOF
 
-    # lftp mirror 命令
-    local lftp_cmd
-    lftp_cmd=$(printf '%q ' \
-        lftp \
-        -c "open https://${host}; \
-            mirror \
-            ${LFTP_OPTIONS} \
-            ${exclude_args[*]} \
-            --target-directory=${CACHE_DIR} \
-            ${remote_path}")
-
-    if run_cmd eval "${lftp_cmd}"; then
+    local ret=$?
+    if [[ $ret -eq 0 ]]; then
         log_success "OBS 同步完成"
         return 0
     else
-        log_error "OBS 同步失败"
+        log_error "OBS 同步失败 (lftp exit code: ${ret})"
         return 1
     fi
 }
