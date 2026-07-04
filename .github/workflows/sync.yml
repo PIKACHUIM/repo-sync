@@ -64,7 +64,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
-            rsync \
+            wget \
             aptly \
             gnupg \
             gzip \
@@ -86,7 +86,7 @@ jobs:
         run: |
           cat > repo-sync/config.sh << 'CONFIGEOF'
           #!/usr/bin/env bash
-          OBS_URL="rsync://download.opensuse.org/repositories/home:/LingmoOS/Debian_13/"
+          OBS_URL="https://download.opensuse.org/repositories/home:/LingmoOS/Debian_13/"
           CACHE_DIR="${{ env.CACHE_DIR }}"
           LOG_DIR="${{ env.LOG_DIR }}"
           REPO_NAMES=(
@@ -110,7 +110,7 @@ jobs:
           PUBLISH_ROOT="${{ env.PUBLISH_ROOT }}"
           GPG_KEY="${{ secrets.GPG_KEY }}"
           SIGN=true
-          RSYNC_OPTIONS="-av --delete --safe-links --timeout=120 --contimeout=60"
+          WGET_OPTIONS="-c -r -np -nH --cut-dirs=3 --timeout=120 -q"
           CONFIGEOF
 
           chmod +x repo-sync/*.sh
@@ -129,38 +129,42 @@ jobs:
         env:
           GPG_KEY_ID: ${{ secrets.GPG_KEY }}
           GPG_PRIV: ${{ secrets.GPG_PRIVATE_KEY }}
-        if: env.GPG_KEY_ID != ''
         run: |
-          echo "${GPG_PRIV}" | gpg --import --batch
-          echo "GPG 密钥导入完成"
-          gpg --list-keys "${GPG_KEY_ID}"
+          if [ -n "${GPG_KEY_ID}" ] && [ -n "${GPG_PRIV}" ]; then
+            echo "${GPG_PRIV}" | gpg --import --batch
+            echo "GPG 密钥导入完成"
+            gpg --list-keys "${GPG_KEY_ID}"
+            echo "gpg_key_id=${GPG_KEY_ID}" >> $GITHUB_OUTPUT
+          else
+            echo "GPG 密钥未配置，跳过签名"
+          fi
+        id: gpg-setup
 
       # ======================================================
       # Step 5: 拉取 OBS 仓库
       # ======================================================
-      - name: 拉取 OBS 仓库（rsync）
+      - name: 拉取 OBS 仓库（wget）
         id: download
+        continue-on-error: true
         run: |
           cd repo-sync
-          echo "::group::OBS rsync 拉取"
+          echo "::group::OBS wget 拉取"
           bash download.sh
           echo "::endgroup::"
-        continue-on-error: ${{ github.event.inputs.dry_run == 'true' }}
 
-      # ======================================================
-      # Step 6: 检查缓存内容
-      # ======================================================
-      - name: 检查缓存内容
+      - name: 检查 wget 下载结果
+        id: check-cache
         run: |
-          echo "缓存目录: ${{ env.CACHE_DIR }}"
-          echo "文件数量: $(find ${{ env.CACHE_DIR }} -type f 2>/dev/null | wc -l)"
-          echo "磁盘占用: $(du -sh ${{ env.CACHE_DIR }} 2>/dev/null | cut -f1)"
-          echo ""
-          echo "=== .deb 文件 ==="
-          find ${{ env.CACHE_DIR }} -name '*.deb' -type f 2>/dev/null | head -10
-          echo ""
-          echo "=== .dsc 文件 ==="
-          find ${{ env.CACHE_DIR }} -name '*.dsc' -type f 2>/dev/null | head -10
+          CACHE="${{ env.CACHE_DIR }}"
+          COUNT=$(find "$CACHE" -type f 2>/dev/null | wc -l)
+          echo "缓存文件数: $COUNT"
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "OBS wget 下载失败，缓存为空，终止流程"
+            exit 1
+          fi
+
+          echo "OBS 同步成功"
 
       # ======================================================
       # Step 7: 检查 aptly 状态
@@ -177,33 +181,50 @@ jobs:
           aptly publish list || echo "(无)"
 
       # ======================================================
-      # Step 8: 导入并创建快照
+      # Step 8: 配置 GPG 到 config.sh
+      # ======================================================
+      - name: 写入 GPG 配置
+        run: |
+          GPG_ID="${{ steps.gpg-setup.outputs.gpg_key_id }}"
+          if [ -n "${GPG_ID}" ]; then
+            sed -i "s|^GPG_KEY=.*|GPG_KEY=\"${GPG_ID}\"|" repo-sync/config.sh
+            sed -i "s|^SIGN=.*|SIGN=true|" repo-sync/config.sh
+            echo "GPG 已配置: ${GPG_ID}"
+          else
+            sed -i "s|^SIGN=.*|SIGN=false|" repo-sync/config.sh
+            echo "GPG 未配置，跳过签名"
+          fi
+
+      # ======================================================
+      # Step 9: 导入并创建快照
       # ======================================================
       - name: 导入并创建 Snapshot
         id: import
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          IS_DRY: ${{ github.event.inputs.dry_run || 'false' }}
+        if: env.IS_DRY != 'true'
         run: |
           cd repo-sync
           echo "::group::aptly 导入与快照"
           bash import.sh
           echo "::endgroup::"
-        continue-on-error: ${{ github.event.inputs.dry_run == 'true' }}
 
       # ======================================================
-      # Step 9: 发布
+      # Step 10: 发布
       # ======================================================
       - name: 发布 Snapshot
         id: publish
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          IS_DRY: ${{ github.event.inputs.dry_run || 'false' }}
+        if: env.IS_DRY != 'true'
         run: |
           cd repo-sync
           echo "::group::aptly 发布"
           bash publish.sh
           echo "::endgroup::"
-        continue-on-error: ${{ github.event.inputs.dry_run == 'true' }}
 
       # ======================================================
-      # Step 10: 推送到远端服务器（待实现）
+      # Step 11: 推送到远端服务器（待实现）
       #
       # TODO: 将发布后的仓库同步到：
       #   - 备用镜像服务器
@@ -229,7 +250,7 @@ jobs:
           echo "  - rsync 到 CDN 源站"
 
       # ======================================================
-      # Step 11: 同步完成摘要
+      # Step 12: 同步完成摘要
       # ======================================================
       - name: 同步完成摘要
         if: always()
@@ -238,8 +259,9 @@ jobs:
           echo "  Lingmo Repository Sync 完成"
           echo "============================================"
           echo ""
-          echo "OBS 同步: ${{ steps.download.outcome }}"
-          echo "导入快照: ${{ steps.import.outcome }}"
+          echo "下载: ${{ steps.download.outcome }}"
+          echo "GPG: ${{ steps.gpg-setup.outputs.gpg_key_id || '未配置' }}"
+          echo "导入: ${{ steps.import.outcome }}"
           echo "发布: ${{ steps.publish.outcome }}"
           echo "推送: ${{ steps.push.outcome }}"
           echo ""

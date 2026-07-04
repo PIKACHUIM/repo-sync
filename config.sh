@@ -14,10 +14,9 @@
 # OBS 仓库配置
 # ============================================================
 
-# OBS rsync 地址（注意：使用 rsync 协议，非 HTTPS）
-# 格式：rsync://download.opensuse.org/repositories/home:/LingmoOS/Debian_13/
-# 如果 OBS 使用 HTTPS，可搭配 rsync-over-SSH 或配置 local mirror
-OBS_URL="rsync://download.opensuse.org/repositories/home:/LingmoOS/Debian_13/"
+# OBS 仓库 HTTPS 地址
+# wget 会递归下载此 URL 下的所有文件
+OBS_URL="https://download.opensuse.org/repositories/home:/LingmoOS/Debian_13/"
 
 # ============================================================
 # 本地缓存目录
@@ -87,12 +86,13 @@ GPG_KEY=""
 SIGN=false
 
 # ============================================================
-# rsync 选项
+# wget 选项
 # ============================================================
-# -a          归档模式（递归 + 保留权限等）
-# -v          详细输出
-# --delete    删除目标端多余文件
-# --safe-links 忽略符号链接指向目标外
-# --timeout   网络超时（秒）
-# --contimeout 连接超时（秒）
-RSYNC_OPTIONS="-av --delete --safe-links --timeout=60 --contimeout=60"
+# -c          断点续传
+# -r          递归下载
+# -np         不进入父目录
+# -nH         不创建主机名目录
+# --cut-dirs=3 裁剪 URL 路径层级（适应 OBS URL 结构）
+# --timeout   超时秒数
+# -q          安静模式（配合日志使用）
+WGET_OPTIONS="-c -r -np -nH --cut-dirs=3 --timeout=60 -q"

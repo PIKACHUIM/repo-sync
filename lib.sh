@@ -129,7 +129,7 @@ run_cmd() {
 
 # 检查所有必需的依赖工具
 check_dependencies() {
-    local deps=("rsync" "aptly" "gpg" "gzip" "bzip2" "xz")
+    local deps=("wget" "aptly" "gpg" "gzip" "bzip2" "xz")
     local missing=()
 
     for dep in "${deps[@]}"; do
