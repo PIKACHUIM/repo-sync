@@ -122,11 +122,14 @@ jobs:
       # Step 4: GPG 密钥
       # ======================================================
       - name: 导入 GPG 密钥
-        if: ${{ secrets.GPG_KEY != '' }}
+        env:
+          GPG_KEY_ID: ${{ secrets.GPG_KEY }}
+          GPG_PRIV: ${{ secrets.GPG_PRIVATE_KEY }}
+        if: env.GPG_KEY_ID != ''
         run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --import --batch
+          echo "${GPG_PRIV}" | gpg --import --batch
           echo "GPG 密钥导入完成"
-          gpg --list-keys "${{ secrets.GPG_KEY }}"
+          gpg --list-keys "${GPG_KEY_ID}"
 
       # ======================================================
       # Step 5: 拉取 OBS 仓库
