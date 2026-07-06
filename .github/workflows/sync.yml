@@ -254,47 +254,45 @@ jobs:
       # ======================================================
       # Step 12: 上传到 GitHub Release (packages)
       # ======================================================
-      - name: 上传到 GitHub Release
+      - name: 上传到 GitHub Packages
         id: push
         if: ${{ steps.publish.outcome == 'success' && steps.package.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ARCHIVE="${{ steps.package.outputs.archive }}"
-          RELEASE_TAG="packages"
+          PKG_NAME="lingmo-repo-sync"
+          PKG_VERSION="$(date -u '+%Y%m%d-%H%M%S')"
 
-          echo "Release 文件: ${ARCHIVE}"
+          echo "文件: ${ARCHIVE}"
           ls -lh "${ARCHIVE}"
           SIZE=$(stat -c%s "${ARCHIVE}")
 
-          # 确保 Release 存在（幂等）
-          gh release create "${RELEASE_TAG}" \
-            --repo "${{ github.repository }}" \
-            --title "Lingmo Repo Sync Packages" \
-            --notes "持续更新的 apt 仓库快照" \
-            --target "${{ github.ref_name }}" \
-            --latest=false 2>/dev/null || true
-
-          # GitHub Release 单个文件限制 2GB，超过则分片上传
+          # GitHub Packages 单个版本限制 2GB，超过则分片上传为同一版本
           if [ "${SIZE}" -gt 2147483648 ]; then
-            echo "文件超过 2GB，分片上传"
+            echo "文件超过 2GB，分片上传到 packages"
             split -b 1900M "${ARCHIVE}" "${ARCHIVE}.part-"
             for part in "${ARCHIVE}".part-*; do
-              echo "上传分片: $(basename "${part}") ($(du -h "${part}" | cut -f1))"
-              gh release upload "${RELEASE_TAG}" "${part}" \
-                --repo "${{ github.repository }}" \
-                --clobber
+              fname=$(basename "${part}")
+              echo "上传分片: ${fname} ($(du -h "${part}" | cut -f1))"
+              gh api \
+                --method PUT \
+                -H "Content-Type: application/gzip" \
+                "/repos/${{ github.repository }}/packages/generic/${PKG_NAME}/${PKG_VERSION}/${fname}" \
+                --input "${part}"
             done
             echo "清理分片文件"
             rm -f "${ARCHIVE}".part-*
           else
-            echo "上传完整文件"
-            gh release upload "${RELEASE_TAG}" "${ARCHIVE}" \
-              --repo "${{ github.repository }}" \
-              --clobber
+            echo "上传完整文件到 packages"
+            gh api \
+              --method PUT \
+              -H "Content-Type: application/gzip" \
+              "/repos/${{ github.repository }}/packages/generic/${PKG_NAME}/${PKG_VERSION}/repo-sync.tar.gz" \
+              --input "${ARCHIVE}"
           fi
 
-          echo "上传完成"
+          echo "上传完成 (${PKG_NAME}@${PKG_VERSION})"
 
       # ======================================================
       # Step 13: 同步完成摘要
