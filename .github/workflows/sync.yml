@@ -229,33 +229,47 @@ jobs:
           echo "::endgroup::"
 
       # ======================================================
-      # Step 11: 推送到远端服务器（待实现）
-      #
-      # TODO: 将发布后的仓库同步到：
-      #   - 备用镜像服务器
-      #   - Cloudflare R2
-      #   - Cloudflare Pages
-      #   - CDN 节点
+      # Step 11: 打包发布仓库
       # ======================================================
-      - name: 推送到远端服务器（占位）
-        id: push
+      - name: 打包发布仓库
+        id: package
+        if: ${{ steps.publish.outcome == 'success' }}
         run: |
-          echo "============================================"
-          echo "  [占位] 推送到远端服务器"
-          echo "============================================"
-          echo ""
-          echo "发布根目录: ${{ env.PUBLISH_ROOT }}"
-          echo "发布内容:"
-          ls -la "${{ env.PUBLISH_ROOT }}/" 2>/dev/null || echo "  (空)"
-          echo ""
-          echo "待实现推送目标:"
-          echo "  - rsync 到备用镜像服务器"
-          echo "  - rclone 到 Cloudflare R2"
-          echo "  - wrangler 到 Cloudflare Pages"
-          echo "  - rsync 到 CDN 源站"
+          RELEASE_TAG="repo-sync-$(date -u '+%Y%m%d-%H%M%S')"
+          echo "tag=${RELEASE_TAG}" >> $GITHUB_OUTPUT
+
+          PACKAGE="/tmp/${RELEASE_TAG}.tar.gz"
+          echo "archive=${PACKAGE}" >> $GITHUB_OUTPUT
+
+          echo "打包发布仓库: ${PACKAGE}"
+          sudo tar czf "${PACKAGE}" -C "${{ env.PUBLISH_ROOT }}" .
+
+          echo "包大小: $(du -h "${PACKAGE}" | cut -f1)"
 
       # ======================================================
-      # Step 12: 同步完成摘要
+      # Step 12: 上传到 GitHub Release
+      # ======================================================
+      - name: 上传到 GitHub Release
+        id: push
+        if: ${{ steps.publish.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.package.outputs.tag }}"
+          ARCHIVE="${{ steps.package.outputs.archive }}"
+
+          echo "创建 Release: ${TAG}"
+          gh release create "${TAG}" \
+            "${ARCHIVE}" \
+            --title "Lingmo Repo Sync ${TAG}" \
+            --notes "自动同步 OBS → aptly 仓库快照" \
+            --target "${{ github.ref_name }}" \
+            --latest=false
+
+          echo "Release ${TAG} 创建完成"
+
+      # ======================================================
+      # Step 13: 同步完成摘要
       # ======================================================
       - name: 同步完成摘要
         if: always()
@@ -270,5 +284,6 @@ jobs:
           echo "发布: ${{ steps.publish.outcome }}"
           echo "推送: ${{ steps.push.outcome }}"
           echo ""
+          echo "Release: ${{ steps.package.outputs.tag }}"
           echo "日志: ${{ env.LOG_DIR }}"
           ls -la "${{ env.LOG_DIR }}/" 2>/dev/null || echo "  无日志"
