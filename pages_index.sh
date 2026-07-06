@@ -433,7 +433,7 @@ generate_all_indexes() {
     # 递归生成子目录索引
     while IFS= read -r abs_dir; do
         # 计算相对路径
-        local rel_path="${abs_dir#${PUBLISH_ROOT}/}"
+        local rel_path="${abs_dir#"${PUBLISH_ROOT}"/}"
 
         generate_dir_index "${abs_dir}" "${rel_path}"
         ((dir_count++)) || true
